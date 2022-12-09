@@ -1,0 +1,6 @@
+[submodule "CEssentials"]
+	path = CEssentials
+	url = https://github.com/KivApple/CEssentials.git
+[submodule "cglm"]
+	path = cglm
+	url = https://github.com/recp/cglm.git
