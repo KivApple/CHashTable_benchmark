@@ -13,4 +13,4 @@ add_subdirectory(CEssentials)
 add_subdirectory(cglm)
 
 add_executable(CHashTable_benchmark main.c)
-target_link_libraries(CHashTable_benchmark CEssentials cglm)
+target_link_libraries(CHashTable_benchmark CEssentials::CEssentials cglm)

@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
-#include <CVec.h>
-#include <CHashTable.h>
+#include <CEssentials/dynvec.h>
+#include <CEssentials/hashtable.h>
 #include <cglm/vec3.h>
 #include <cglm/ivec3.h>
 #ifdef _WIN32
@@ -12,11 +12,8 @@
 #include <sys/time.h>
 #endif
 
-CVec_TYPEDEF(Vec3List, vec3)
-CVec_IMPL(Vec3List, vec3)
-
-CVec_TYPEDEF(IVec3List, ivec3)
-CVec_IMPL(IVec3List, ivec3)
+typedef dynvec(vec3) Vec3List;
+typedef dynvec(ivec3) IVec3List;
 
 typedef struct EdgeId {
 	int first;
@@ -24,18 +21,14 @@ typedef struct EdgeId {
 } EdgeId;
 
 static inline size_t EdgeId_hash(EdgeId x) {
-	size_t seed = 0;
-	seed ^= (unsigned int) x.first + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-	seed ^= (unsigned int) x.second + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-	return seed;
+	return ht_hash_combine(ht_int_hash(x.first), ht_int_hash(x.second));
 }
 
 static inline bool EdgeId_eq(EdgeId a, EdgeId b) {
 	return a.first == b.first && a.second == b.second;
 }
 
-CHashTable_TYPEDEF(MeshEdgeCache, EdgeId, int)
-CHashTable_IMPL(MeshEdgeCache, EdgeId, int, true, EdgeId_hash, EdgeId_eq)
+typedef HT(EdgeId, int) MeshEdgeCache;
 
 typedef struct IndexedMesh {
 	Vec3List vertices;
@@ -50,33 +43,34 @@ static int midVertexForEdge(MeshEdgeCache *cache, Vec3List *vertices, int first,
 	}
 	EdgeId key = {first, second};
 	int result;
-	size_t i = MeshEdgeCache_put(cache, key, &result);
+	size_t i = 0;
+	ht_put(*cache, EdgeId, int, key, i, result, EdgeId_hash, EdgeId_eq);
 	if (result) {
-		*MeshEdgeCache_value(cache, i) = (int) Vec3List_size(vertices);
-		vec3 *v = Vec3List_append(vertices);
-		glm_vec3_add(*Vec3List_at(vertices, first), *Vec3List_at(vertices, first), *v);
+		ht_value(*cache, i) = (int) dynvec_size(*vertices);
+		vec3 *v = dynvec_append(*vertices, vec3);
+		glm_vec3_add(dynvec_at(*vertices, first), dynvec_at(*vertices, first), *v);
 		glm_vec3_normalize(*v);
 	}
-	return *MeshEdgeCache_value(cache, i);
+	return ht_value(*cache, i);
 }
 
 static void subdivideMesh(Vec3List *vertices, IVec3List *triangles, MeshEdgeCache *cache, IVec3List *result) {
-	MeshEdgeCache_clear(cache);
-	IVec3List_clear(result);
-	for (size_t i = 0; i < IVec3List_size(triangles); i++) {
-		ivec3 *triangle = IVec3List_at(triangles, i);
+	ht_clear(*cache);
+	dynvec_clear(*result);
+	dynvec_for_each(*triangles, i) {
+		ivec3 *triangle = &dynvec_at(*triangles, i);
 		int mid[] = {
 				midVertexForEdge(cache, vertices, (*triangle)[0], (*triangle)[1]),
 				midVertexForEdge(cache, vertices, (*triangle)[1], (*triangle)[2]),
 				midVertexForEdge(cache, vertices, (*triangle)[2], (*triangle)[0])
 		};
-		IVec3List_push(result, &(ivec3) {(*triangle)[0], mid[0], mid[2]});
-		IVec3List_push(result, &(ivec3) {(*triangle)[1], mid[1], mid[0]});
-		IVec3List_push(result, &(ivec3) {(*triangle)[2], mid[2], mid[1]});
-		IVec3List_push(result, &(ivec3) {mid[0], mid[1], mid[2]});
+		glm_ivec3_copy((ivec3) {(*triangle)[0], mid[0], mid[2]}, *dynvec_append(*result, ivec3));
+		glm_ivec3_copy((ivec3) {(*triangle)[1], mid[1], mid[0]}, *dynvec_append(*result, ivec3));
+		glm_ivec3_copy((ivec3) {(*triangle)[2], mid[2], mid[1]}, *dynvec_append(*result, ivec3));
+		glm_ivec3_copy((ivec3) {mid[0], mid[1], mid[2]}, *dynvec_append(*result, ivec3));
 	}
-	assert(IVec3List_size(result) == IVec3List_size(triangles) * 4);
-	assert(MeshEdgeCache_size(cache) == IVec3List_size(triangles) + IVec3List_size(triangles) / 2);
+	assert(dynvec_size(*result) == dynvec_size(*triangles) * 4);
+	assert(ht_size(*cache) == dynvec_size(*triangles) + dynvec_size(*triangles) / 2);
 }
 
 IndexedMesh generateMesh(int subdivisionCount) {
@@ -100,25 +94,25 @@ IndexedMesh generateMesh(int subdivisionCount) {
 	};
 	
 	Vec3List vertices;
-	Vec3List_init(&vertices);
-	Vec3List_resize(&vertices, sizeof(INITIAL_VERTICES) / sizeof(INITIAL_VERTICES[0]));
-	memcpy(Vec3List_at(&vertices, 0), INITIAL_VERTICES, sizeof(INITIAL_VERTICES));
+	dynvec_init(vertices);
+	dynvec_resize(vertices, sizeof(INITIAL_VERTICES) / sizeof(INITIAL_VERTICES[0]), vec3);
+	memcpy(&dynvec_at(vertices, 0), INITIAL_VERTICES, sizeof(INITIAL_VERTICES));
 	
 	IVec3List trianglesStorage[2];
 	IVec3List *triangles = &trianglesStorage[0];
 	IVec3List *tmpTriangles = &trianglesStorage[1];
 	
-	IVec3List_init(triangles);
-	IVec3List_resize(triangles, sizeof(INITIAL_TRIANGLES) / sizeof(INITIAL_TRIANGLES[0]));
-	memcpy(IVec3List_at(triangles, 0), INITIAL_TRIANGLES, sizeof(INITIAL_TRIANGLES));
+	dynvec_init(*triangles);
+	dynvec_resize(*triangles, sizeof(INITIAL_TRIANGLES) / sizeof(INITIAL_TRIANGLES[0]), ivec3);
+	memcpy(&dynvec_at(*triangles, 0), INITIAL_TRIANGLES, sizeof(INITIAL_TRIANGLES));
 	
-	IVec3List_init(tmpTriangles);
+	dynvec_init(*tmpTriangles);
 	
 	MeshEdgeCache cache;
-	MeshEdgeCache_init(&cache);
+	ht_init(cache);
 	
-	size_t predictedVertexCount = Vec3List_size(&vertices);
-	size_t predictedTriangleCount = IVec3List_size(triangles);
+	size_t predictedVertexCount = dynvec_size(vertices);
+	size_t predictedTriangleCount = dynvec_size(*triangles);
 	size_t predictedCacheSize = 0;
 	for (int i = 0; i < subdivisionCount; i++) {
 		predictedCacheSize = predictedTriangleCount + predictedTriangleCount / 2;
@@ -126,10 +120,11 @@ IndexedMesh generateMesh(int subdivisionCount) {
 		predictedTriangleCount *= 4;
 	}
 	
-	MeshEdgeCache_reserve(&cache, predictedCacheSize);
-	Vec3List_reserve(&vertices, predictedVertexCount);
-	IVec3List_reserve(triangles, predictedTriangleCount);
-	IVec3List_reserve(tmpTriangles, predictedTriangleCount / 4);
+	bool success;
+	ht_reserve(cache, EdgeId, int, predictedCacheSize, success, EdgeId_hash);
+	dynvec_reserve(vertices, predictedVertexCount, vec3);
+	dynvec_reserve(*triangles, predictedTriangleCount, ivec3);
+	dynvec_reserve(*tmpTriangles, predictedTriangleCount / 4, ivec3);
 	
 	for (int i = 0; i < subdivisionCount; i++) {
 		subdivideMesh(&vertices, triangles, &cache, tmpTriangles);
@@ -138,13 +133,13 @@ IndexedMesh generateMesh(int subdivisionCount) {
 		tmpTriangles = tmp;
 	}
 	
-	assert(Vec3List_size(&vertices) == predictedVertexCount);
-	assert(IVec3List_size(triangles) == predictedTriangleCount);
-	assert(IVec3List_size(tmpTriangles) == predictedTriangleCount / 4);
-	assert(MeshEdgeCache_size(&cache) == predictedCacheSize);
+	assert(dynvec_size(vertices) == predictedVertexCount);
+	assert(dynvec_size(*triangles) == predictedTriangleCount);
+	assert(dynvec_size(*tmpTriangles) == predictedTriangleCount / 4);
+	assert(ht_size(cache) == predictedCacheSize);
 	
-	MeshEdgeCache_destroy(&cache);
-	IVec3List_destroy(tmpTriangles);
+	ht_destroy(cache);
+	dynvec_destroy(*tmpTriangles);
 	
 	IndexedMesh mesh = {
 			.vertices = vertices,
@@ -155,9 +150,9 @@ IndexedMesh generateMesh(int subdivisionCount) {
 
 size_t testIcoSphere(void) {
 	IndexedMesh mesh = generateMesh(4);
-	size_t result = Vec3List_size(&mesh.vertices) * IVec3List_size(&mesh.triangles);
-	IVec3List_destroy(&mesh.triangles);
-	Vec3List_destroy(&mesh.vertices);
+	size_t result = dynvec_size(mesh.vertices) * dynvec_size(mesh.triangles);
+	dynvec_destroy(mesh.triangles);
+	dynvec_destroy(mesh.vertices);
 	return result;
 }
 
