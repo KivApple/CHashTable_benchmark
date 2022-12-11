@@ -48,7 +48,7 @@ static int midVertexForEdge(MeshEdgeCache *cache, Vec3List *vertices, int first,
 	if (result) {
 		ht_value(*cache, i) = (int) dynvec_size(*vertices);
 		vec3 *v = dynvec_append(*vertices, vec3);
-		glm_vec3_add(dynvec_at(*vertices, first), dynvec_at(*vertices, first), *v);
+		glm_vec3_add(dynvec_at(*vertices, first), dynvec_at(*vertices, second), *v);
 		glm_vec3_normalize(*v);
 	}
 	return ht_value(*cache, i);
